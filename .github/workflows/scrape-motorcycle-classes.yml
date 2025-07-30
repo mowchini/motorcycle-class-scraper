@@ -41,13 +41,3 @@ jobs:
         name: motorcycle-classes-${{ github.run_number }}
         path: '*.json'
         retention-days: 30
-
-    - name: Commit and push if changed
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add -A
-        if ! git diff --cached --exit-code; then
-          git commit -m "Update motorcycle classes data $(date)"
-          git push
-        fi
