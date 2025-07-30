@@ -13,25 +13,35 @@ class MotorcycleClassScraper {
   }
 
   async init() {
+    console.log('🔧 Initializing browser...');
     this.browser = await puppeteer.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
+    console.log('✅ Browser ready');
   }
 
   async scrapeShopRideRite() {
+    console.log('🏪 Scraping RideRite...');
     const page = await this.browser.newPage();
     try {
       await page.goto('https://shopriderite.net/product-category/basic/', {
-        waitUntil: 'networkidle2'
+        waitUntil: 'networkidle2',
+        timeout: 30000
       });
 
+      console.log('📄 RideRite page loaded');
+
       const classes = await page.evaluate(() => {
-        const products = document.querySelectorAll('.product');
+        const products = document.querySelectorAll('.product, .woocommerce-loop-product, .course-item');
+        console.log('Found product elements:', products.length);
+        
         return Array.from(products).map(product => {
-          const title = product.querySelector('.woocommerce-loop-product__title')?.textContent?.trim();
-          const price = product.querySelector('.price')?.textContent?.trim();
+          const title = product.querySelector('.woocommerce-loop-product__title, h3, h2, .title')?.textContent?.trim();
+          const price = product.querySelector('.price, .cost')?.textContent?.trim();
           const link = product.querySelector('a')?.href;
+          
+          if (!title) return null;
           
           return {
             title,
@@ -40,12 +50,13 @@ class MotorcycleClassScraper {
             provider: 'RideRite',
             type: 'Basic Course'
           };
-        });
+        }).filter(Boolean);
       });
 
+      console.log(`📋 RideRite found ${classes.length} classes`);
       this.classes.push(...classes);
     } catch (error) {
-      console.error('Error scraping RideRite:', error);
+      console.error('❌ Error scraping RideRite:', error.message);
     } finally {
       await page.close();
     }
@@ -172,45 +183,60 @@ class MotorcycleClassScraper {
     }
   }
 
-async scrapeAll() {
-  console.log('🚀 Starting scraper...');
-  await this.init();
-  console.log('✅ Browser initialized');
+  async scrapeAll() {
+    console.log('🚀 Starting scraper...');
+    await this.init();
 
-  // Define all sources
-  const sources = [
-    { 
-      name: 'RideRite',
-      type: 'riderite', 
-      fn: () => this.scrapeShopRideRite() 
+    // Define all sources
+    const sources = [
+      { 
+        name: 'RideRite',
+        type: 'riderite', 
+        fn: () => this.scrapeShopRideRite() 
+      }
+    ];
+
+    console.log(`📝 Will scrape ${sources.length} sources...`);
+
+    // Run scrapers one by one with detailed logging
+    for (const source of sources) {
+      console.log(`🔍 Scraping ${source.name}...`);
+      try {
+        const beforeCount = this.classes.length;
+        await source.fn();
+        const afterCount = this.classes.length;
+        const foundNew = afterCount - beforeCount;
+        console.log(`✅ ${source.name}: Found ${foundNew} new classes (total: ${afterCount})`);
+      } catch (error) {
+        console.error(`❌ ${source.name} failed:`, error.message);
+      }
     }
-  ];
 
-  console.log(`📝 Will scrape ${sources.length} sources...`);
-
-  // Run scrapers one by one with detailed logging
-  for (const source of sources) {
-    console.log(`🔍 Scraping ${source.name}...`);
-    try {
-      const beforeCount = this.classes.length;
-      await source.fn();
-      const afterCount = this.classes.length;
-      const foundNew = afterCount - beforeCount;
-      console.log(`✅ ${source.name}: Found ${foundNew} new classes (total: ${afterCount})`);
-    } catch (error) {
-      console.error(`❌ ${source.name} failed:`, error.message);
+    await this.browser.close();
+    console.log(`🎉 Scraping complete! Total classes found: ${this.classes.length}`);
+    
+    if (this.classes.length > 0) {
+      console.log('📊 Sample classes:', JSON.stringify(this.classes.slice(0, 2), null, 2));
     }
+    
+    return this.normalizeData();
   }
 
-  await this.browser.close();
-  console.log(`🎉 Scraping complete! Total classes found: ${this.classes.length}`);
-  
-  if (this.classes.length > 0) {
-    console.log('📊 Sample classes:', JSON.stringify(this.classes.slice(0, 2), null, 2));
+  normalizeData() {
+    return this.classes.map(cls => ({
+      id: this.generateId(cls),
+      title: cls.title || 'Motorcycle Safety Course',
+      provider: cls.provider || 'Unknown',
+      date: this.parseDate(cls.date),
+      time: cls.time || '',
+      location: cls.location || 'Southern California',
+      price: this.parsePrice(cls.price),
+      type: cls.type || 'Motorcycle Course',
+      link: cls.link || '',
+      lastUpdated: new Date().toISOString(),
+      region: 'Southern California'
+    }));
   }
-  
-  return this.normalizeData();
-}
 
   generateId(cls) {
     const str = `${cls.provider}-${cls.title}-${cls.date}`;
@@ -231,111 +257,150 @@ async scrapeAll() {
     return match ? parseFloat(match[1]) : null;
   }
 
-async saveToAirtable(data) {
-  if (!this.airtableConfig.apiKey) {
-    console.log('⚠️  No Airtable API key found, saving to JSON only');
-    await this.saveToJSON(data);
-    return;
+  async saveToAirtable(data) {
+    if (!this.airtableConfig.apiKey) {
+      console.log('No Airtable config found, saving to JSON instead');
+      await this.saveToJSON(data);
+      return;
+    }
+
+    const fetch = require('node-fetch');
+    const url = `https://api.airtable.com/v0/${this.airtableConfig.baseId}/${this.airtableConfig.tableId}`;
+
+    // Batch insert records (Airtable limit: 10 per request)
+    const batches = [];
+    for (let i = 0; i < data.length; i += 10) {
+      batches.push(data.slice(i, i + 10));
+    }
+
+    for (const batch of batches) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.airtableConfig.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            records: batch.map(record => ({ fields: record }))
+          })
+        });
+
+        if (!response.ok) {
+          console.error('Airtable error:', await response.text());
+        }
+      } catch (error) {
+        console.error('Error saving batch to Airtable:', error);
+      }
+    }
   }
 
-  console.log(`🔗 Connecting to Airtable with base: ${this.airtableConfig.baseId}`);
-  console.log(`📋 Table: ${this.airtableConfig.tableId}`);
-  
-  const fetch = require('node-fetch');
-  const url = `https://api.airtable.com/v0/${this.airtableConfig.baseId}/${this.airtableConfig.tableId}`;
-  
-  console.log(`📡 Airtable URL: ${url}`);
-
-  // Test connection first
-  try {
-    console.log('🧪 Testing Airtable connection...');
-    const testResponse = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${this.airtableConfig.apiKey}`,
-        'Content-Type': 'application/json'
-      }
-    });
+  async saveToJSON(data) {
+    const filename = `motorcycle-classes-${new Date().toISOString().split('T')[0]}.json`;
+    console.log(`💾 Saving ${data.length} classes to ${filename}`);
     
-    if (!testResponse.ok) {
-      const errorText = await testResponse.text();
-      console.error('❌ Airtable connection test failed:', testResponse.status, errorText);
+    try {
+      await fs.writeFile(filename, JSON.stringify(data, null, 2));
+      console.log(`✅ Successfully saved to ${filename}`);
+      
+      // Also create a summary file
+      const summary = {
+        totalClasses: data.length,
+        providers: [...new Set(data.map(c => c.provider))],
+        lastUpdated: new Date().toISOString(),
+        sampleClass: data[0] || null
+      };
+      
+      await fs.writeFile('summary.json', JSON.stringify(summary, null, 2));
+      console.log('📊 Summary saved to summary.json');
+      
+    } catch (error) {
+      console.error('❌ Error saving JSON:', error);
+    }
+  }
+
+  async saveToAirtable(data) {
+    if (!this.airtableConfig.apiKey) {
+      console.log('⚠️  No Airtable API key found, saving to JSON only');
+      await this.saveToJSON(data);
+      return;
+    }
+
+    console.log(`🔗 Connecting to Airtable with base: ${this.airtableConfig.baseId}`);
+    console.log(`📋 Table: ${this.airtableConfig.tableId}`);
+    
+    const fetch = require('node-fetch');
+    const url = `https://api.airtable.com/v0/${this.airtableConfig.baseId}/${this.airtableConfig.tableId}`;
+    
+    console.log(`📡 Airtable URL: ${url}`);
+
+    // Test connection first
+    try {
+      console.log('🧪 Testing Airtable connection...');
+      const testResponse = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.airtableConfig.apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!testResponse.ok) {
+        const errorText = await testResponse.text();
+        console.error('❌ Airtable connection test failed:', testResponse.status, errorText);
+        console.log('💾 Falling back to JSON save...');
+        await this.saveToJSON(data);
+        return;
+      }
+      
+      console.log('✅ Airtable connection successful');
+    } catch (error) {
+      console.error('❌ Airtable connection error:', error.message);
       console.log('💾 Falling back to JSON save...');
       await this.saveToJSON(data);
       return;
     }
-    
-    console.log('✅ Airtable connection successful');
-  } catch (error) {
-    console.error('❌ Airtable connection error:', error.message);
-    console.log('💾 Falling back to JSON save...');
-    await this.saveToJSON(data);
-    return;
-  }
 
-  // Save data in batches
-  const batches = [];
-  for (let i = 0; i < data.length; i += 10) {
-    batches.push(data.slice(i, i + 10));
-  }
-
-  console.log(`📦 Sending ${batches.length} batches to Airtable...`);
-
-  for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i];
-    console.log(`📤 Sending batch ${i + 1}/${batches.length} (${batch.length} records)`);
-    
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.airtableConfig.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          records: batch.map(record => ({ fields: record }))
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`❌ Batch ${i + 1} failed:`, response.status, errorText);
-      } else {
-        console.log(`✅ Batch ${i + 1} successful`);
-      }
-    } catch (error) {
-      console.error(`❌ Error sending batch ${i + 1}:`, error.message);
+    // Save data in batches
+    const batches = [];
+    for (let i = 0; i < data.length; i += 10) {
+      batches.push(data.slice(i, i + 10));
     }
 
-    // Rate limiting
-    await new Promise(resolve => setTimeout(resolve, 250));
-  }
-  
-  // Also save to JSON as backup
-  await this.saveToJSON(data);
-}
+    console.log(`📦 Sending ${batches.length} batches to Airtable...`);
 
-async saveToJSON(data) {
-  const filename = `motorcycle-classes-${new Date().toISOString().split('T')[0]}.json`;
-  console.log(`💾 Saving ${data.length} classes to ${filename}`);
-  
-  try {
-    await fs.writeFile(filename, JSON.stringify(data, null, 2));
-    console.log(`✅ Successfully saved to ${filename}`);
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      console.log(`📤 Sending batch ${i + 1}/${batches.length} (${batch.length} records)`);
+      
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.airtableConfig.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            records: batch.map(record => ({ fields: record }))
+          })
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`❌ Batch ${i + 1} failed:`, response.status, errorText);
+        } else {
+          console.log(`✅ Batch ${i + 1} successful`);
+        }
+      } catch (error) {
+        console.error(`❌ Error sending batch ${i + 1}:`, error.message);
+      }
+
+      // Rate limiting
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
     
-    // Also create a summary file
-    const summary = {
-      totalClasses: data.length,
-      providers: [...new Set(data.map(c => c.provider))],
-      lastUpdated: new Date().toISOString(),
-      sampleClass: data[0] || null
-    };
-    
-    await fs.writeFile('summary.json', JSON.stringify(summary, null, 2));
-    console.log('📊 Summary saved to summary.json');
-    
-  } catch (error) {
-    console.error('❌ Error saving JSON:', error);
+    // Also save to JSON as backup
+    await this.saveToJSON(data);
   }
 }
 
@@ -361,3 +426,9 @@ async function main() {
     process.exit(1);
   }
 }
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = MotorcycleClassScraper;
