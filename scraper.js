@@ -174,8 +174,8 @@ class MotorcycleClassScraper {
 
 async scrapeAll() {
   console.log('🚀 Starting scraper...');
-  console.log('🔍 Scraping ${source.name}...');
   await this.init();
+  console.log('✅ Browser initialized');
 
   // Define all sources
   const sources = [
@@ -183,16 +183,6 @@ async scrapeAll() {
       name: 'RideRite',
       type: 'riderite', 
       fn: () => this.scrapeShopRideRite() 
-    },
-    { 
-      name: 'MSI Capitol',
-      type: 'msi', 
-      fn: () => this.scrapeMSIRegistration('https://register.msi5.com/webreg/production/reactapp/?book=capsc&SC=*FA&CC=MTC,EMTC', 'MSI Capitol')
-    },
-    { 
-      name: 'Harley Davidson',
-      type: 'harley', 
-      fn: () => this.scrapeHarleyDavidson() 
     }
   ];
 
@@ -202,17 +192,22 @@ async scrapeAll() {
   for (const source of sources) {
     console.log(`🔍 Scraping ${source.name}...`);
     try {
+      const beforeCount = this.classes.length;
       await source.fn();
-      console.log(`✅ ${source.name}: Found ${this.classes.length} total classes so far`);
+      const afterCount = this.classes.length;
+      const foundNew = afterCount - beforeCount;
+      console.log(`✅ ${source.name}: Found ${foundNew} new classes (total: ${afterCount})`);
     } catch (error) {
       console.error(`❌ ${source.name} failed:`, error.message);
     }
   }
 
   await this.browser.close();
-  
   console.log(`🎉 Scraping complete! Total classes found: ${this.classes.length}`);
-  console.log('📊 Sample classes:', this.classes.slice(0, 3));
+  
+  if (this.classes.length > 0) {
+    console.log('📊 Sample classes:', JSON.stringify(this.classes.slice(0, 2), null, 2));
+  }
   
   return this.normalizeData();
 }
