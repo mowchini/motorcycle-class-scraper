@@ -172,59 +172,49 @@ class MotorcycleClassScraper {
     }
   }
 
-  async scrapeAll() {
-    await this.init();
+async scrapeAll() {
+  console.log('🚀 Starting scraper...');
+  await this.init();
 
-    // Define all sources
-    const sources = [
-      { 
-        type: 'riderite', 
-        fn: () => this.scrapeShopRideRite() 
-      },
-      { 
-        type: 'msi', 
-        fn: () => this.scrapeMSIRegistration('https://register.msi5.com/webreg/production/reactapp/?book=capsc&SC=*FA&CC=MTC,EMTC', 'MSI Capitol')
-      },
-      { 
-        type: 'msi', 
-        fn: () => this.scrapeMSIRegistration('https://register.msi5.com/webreg/production/reactapp/?book=tcontrol&CC=MTC&fagroup=ALBERTSONS%20CORPORATE&LAP=26', 'MSI Traffic Control')
-      },
-      { 
-        type: 'harley', 
-        fn: () => this.scrapeHarleyDavidson() 
-      },
-      { 
-        type: 'community', 
-        fn: () => this.scrapeCommunityEd('https://communityed.mtsac.edu/index.cfm?method=ClassListing.ClassListingDisplay&int_category_id=5&int_sub_category_id=1&int_catalog_id=', 'Mt. SAC Community Ed')
-      },
-      { 
-        type: 'community', 
-        fn: () => this.scrapeCommunityEd('https://cerritos.augusoft.net/index.cfm?method=ClassListing.ClassListingDisplay', 'Cerritos College')
-      }
-    ];
+  // Define all sources
+  const sources = [
+    { 
+      name: 'RideRite',
+      type: 'riderite', 
+      fn: () => this.scrapeShopRideRite() 
+    },
+    { 
+      name: 'MSI Capitol',
+      type: 'msi', 
+      fn: () => this.scrapeMSIRegistration('https://register.msi5.com/webreg/production/reactapp/?book=capsc&SC=*FA&CC=MTC,EMTC', 'MSI Capitol')
+    },
+    { 
+      name: 'Harley Davidson',
+      type: 'harley', 
+      fn: () => this.scrapeHarleyDavidson() 
+    }
+  ];
 
-    // Run scrapers in parallel with error handling
-    await Promise.allSettled(sources.map(source => source.fn()));
+  console.log(`📝 Will scrape ${sources.length} sources...`);
 
-    await this.browser.close();
-    return this.normalizeData();
+  // Run scrapers one by one with detailed logging
+  for (const source of sources) {
+    console.log(`🔍 Scraping ${source.name}...`);
+    try {
+      await source.fn();
+      console.log(`✅ ${source.name}: Found ${this.classes.length} total classes so far`);
+    } catch (error) {
+      console.error(`❌ ${source.name} failed:`, error.message);
+    }
   }
 
-  normalizeData() {
-    return this.classes.map(cls => ({
-      id: this.generateId(cls),
-      title: cls.title || 'Motorcycle Safety Course',
-      provider: cls.provider || 'Unknown',
-      date: this.parseDate(cls.date),
-      time: cls.time || '',
-      location: cls.location || 'Southern California',
-      price: this.parsePrice(cls.price),
-      type: cls.type || 'Motorcycle Course',
-      link: cls.link || '',
-      lastUpdated: new Date().toISOString(),
-      region: 'Southern California'
-    }));
-  }
+  await this.browser.close();
+  
+  console.log(`🎉 Scraping complete! Total classes found: ${this.classes.length}`);
+  console.log('📊 Sample classes:', this.classes.slice(0, 3));
+  
+  return this.normalizeData();
+}
 
   generateId(cls) {
     const str = `${cls.provider}-${cls.title}-${cls.date}`;
@@ -296,16 +286,19 @@ class MotorcycleClassScraper {
 async function main() {
   const scraper = new MotorcycleClassScraper();
   try {
+    console.log('🏁 Starting motorcycle class scraper...');
     const classes = await scraper.scrapeAll();
-    console.log(`Found ${classes.length} classes`);
-    await scraper.saveToAirtable(classes);
+    console.log(`📈 Final result: ${classes.length} classes processed`);
+    
+    if (classes.length > 0) {
+      console.log('💾 Saving to Airtable...');
+      await scraper.saveToAirtable(classes);
+    } else {
+      console.log('⚠️  No classes found - check scraping logic');
+      await scraper.saveToJSON([]); // Save empty array for debugging
+    }
   } catch (error) {
-    console.error('Scraping failed:', error);
+    console.error('💥 Scraping failed:', error);
+    process.exit(1);
   }
 }
-
-if (require.main === module) {
-  main();
-}
-
-module.exports = MotorcycleClassScraper;
