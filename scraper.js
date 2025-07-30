@@ -231,50 +231,111 @@ async scrapeAll() {
     return match ? parseFloat(match[1]) : null;
   }
 
-  async saveToAirtable(data) {
-    if (!this.airtableConfig.apiKey) {
-      console.log('No Airtable config found, saving to JSON instead');
+async saveToAirtable(data) {
+  if (!this.airtableConfig.apiKey) {
+    console.log('⚠️  No Airtable API key found, saving to JSON only');
+    await this.saveToJSON(data);
+    return;
+  }
+
+  console.log(`🔗 Connecting to Airtable with base: ${this.airtableConfig.baseId}`);
+  console.log(`📋 Table: ${this.airtableConfig.tableId}`);
+  
+  const fetch = require('node-fetch');
+  const url = `https://api.airtable.com/v0/${this.airtableConfig.baseId}/${this.airtableConfig.tableId}`;
+  
+  console.log(`📡 Airtable URL: ${url}`);
+
+  // Test connection first
+  try {
+    console.log('🧪 Testing Airtable connection...');
+    const testResponse = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${this.airtableConfig.apiKey}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!testResponse.ok) {
+      const errorText = await testResponse.text();
+      console.error('❌ Airtable connection test failed:', testResponse.status, errorText);
+      console.log('💾 Falling back to JSON save...');
       await this.saveToJSON(data);
       return;
     }
-
-    const fetch = require('node-fetch');
-    const url = `https://api.airtable.com/v0/${this.airtableConfig.baseId}/${this.airtableConfig.tableId}`;
-
-    // Batch insert records (Airtable limit: 10 per request)
-    const batches = [];
-    for (let i = 0; i < data.length; i += 10) {
-      batches.push(data.slice(i, i + 10));
-    }
-
-    for (const batch of batches) {
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${this.airtableConfig.apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            records: batch.map(record => ({ fields: record }))
-          })
-        });
-
-        if (!response.ok) {
-          console.error('Airtable error:', await response.text());
-        }
-      } catch (error) {
-        console.error('Error saving batch to Airtable:', error);
-      }
-    }
+    
+    console.log('✅ Airtable connection successful');
+  } catch (error) {
+    console.error('❌ Airtable connection error:', error.message);
+    console.log('💾 Falling back to JSON save...');
+    await this.saveToJSON(data);
+    return;
   }
 
-  async saveToJSON(data) {
-    await fs.writeFile(
-      `motorcycle-classes-${new Date().toISOString().split('T')[0]}.json`,
-      JSON.stringify(data, null, 2)
-    );
-    console.log(`Saved ${data.length} classes to JSON file`);
+  // Save data in batches
+  const batches = [];
+  for (let i = 0; i < data.length; i += 10) {
+    batches.push(data.slice(i, i + 10));
+  }
+
+  console.log(`📦 Sending ${batches.length} batches to Airtable...`);
+
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i];
+    console.log(`📤 Sending batch ${i + 1}/${batches.length} (${batch.length} records)`);
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.airtableConfig.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          records: batch.map(record => ({ fields: record }))
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ Batch ${i + 1} failed:`, response.status, errorText);
+      } else {
+        console.log(`✅ Batch ${i + 1} successful`);
+      }
+    } catch (error) {
+      console.error(`❌ Error sending batch ${i + 1}:`, error.message);
+    }
+
+    // Rate limiting
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  
+  // Also save to JSON as backup
+  await this.saveToJSON(data);
+}
+
+async saveToJSON(data) {
+  const filename = `motorcycle-classes-${new Date().toISOString().split('T')[0]}.json`;
+  console.log(`💾 Saving ${data.length} classes to ${filename}`);
+  
+  try {
+    await fs.writeFile(filename, JSON.stringify(data, null, 2));
+    console.log(`✅ Successfully saved to ${filename}`);
+    
+    // Also create a summary file
+    const summary = {
+      totalClasses: data.length,
+      providers: [...new Set(data.map(c => c.provider))],
+      lastUpdated: new Date().toISOString(),
+      sampleClass: data[0] || null
+    };
+    
+    await fs.writeFile('summary.json', JSON.stringify(summary, null, 2));
+    console.log('📊 Summary saved to summary.json');
+    
+  } catch (error) {
+    console.error('❌ Error saving JSON:', error);
   }
 }
 
