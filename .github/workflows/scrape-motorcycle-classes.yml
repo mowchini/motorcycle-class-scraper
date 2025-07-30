@@ -1,11 +1,9 @@
-# .github/workflows/scrape-motorcycle-classes.yml
 name: Scrape Motorcycle Classes
 
 on:
   schedule:
-    # Run every day at 6 AM PST (2 PM UTC)
     - cron: '0 14 * * *'
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch:
 
 jobs:
   scrape:
@@ -15,15 +13,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
- - name: Setup Node.js
-  uses: actions/setup-node@v4
-  with:
-    node-version: '18'
-
-- name: Install dependencies
-  run: |
-    npm install puppeteer node-fetch
-    # This will create package-lock.json automatically
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
 
     - name: Install dependencies
       run: |
