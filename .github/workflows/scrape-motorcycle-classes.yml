@@ -22,6 +22,9 @@ jobs:
       run: |
         npm install puppeteer node-fetch
 
+    - name: Test basic scraping
+      run: node test-scraper.js
+      
     - name: Setup Puppeteer
       run: |
         sudo apt-get update
