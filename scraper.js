@@ -280,21 +280,23 @@ async scrapeAll() {
 
 // Usage
 async function main() {
+  console.log('🏁 Starting motorcycle class scraper...');
   const scraper = new MotorcycleClassScraper();
   try {
-    console.log('🏁 Starting motorcycle class scraper...');
     const classes = await scraper.scrapeAll();
     console.log(`📈 Final result: ${classes.length} classes processed`);
     
     if (classes.length > 0) {
-      console.log('💾 Saving to Airtable...');
+      console.log('💾 Attempting to save to Airtable...');
       await scraper.saveToAirtable(classes);
+      console.log('✅ Save completed');
     } else {
-      console.log('⚠️  No classes found - check scraping logic');
-      await scraper.saveToJSON([]); // Save empty array for debugging
+      console.log('⚠️  No classes found - saving empty result for debugging');
+      await scraper.saveToJSON([]);
     }
   } catch (error) {
     console.error('💥 Scraping failed:', error);
+    console.error('Stack trace:', error.stack);
     process.exit(1);
   }
 }
