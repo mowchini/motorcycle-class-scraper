@@ -1,0 +1,13 @@
+{
+  "name": "motorcycle-class-scraper",
+  "version": "1.0.0",
+  "description": "Scrapes motorcycle class schedules",
+  "main": "scraper.js",
+  "scripts": {
+    "start": "node scraper.js"
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0",
+    "node-fetch": "^2.7.0"
+  }
+}
