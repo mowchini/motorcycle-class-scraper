@@ -1,0 +1,93 @@
+# .github/workflows/scrape-motorcycle-classes.yml
+name: Scrape Motorcycle Classes
+
+on:
+  schedule:
+    # Run every day at 6 AM PST (2 PM UTC)
+    - cron: '0 14 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        npm install puppeteer node-fetch
+
+    - name: Install Chrome dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          gconf-service \
+          libasound2 \
+          libatk1.0-0 \
+          libc6 \
+          libcairo2 \
+          libcups2 \
+          libdbus-1-3 \
+          libexpat1 \
+          libfontconfig1 \
+          libgcc1 \
+          libgconf-2-4 \
+          libgdk-pixbuf2.0-0 \
+          libglib2.0-0 \
+          libgtk-3-0 \
+          libnspr4 \
+          libpango-1.0-0 \
+          libpangocairo-1.0-0 \
+          libstdc++6 \
+          libx11-6 \
+          libx11-xcb1 \
+          libxcb1 \
+          libxcomposite1 \
+          libxcursor1 \
+          libxdamage1 \
+          libxext6 \
+          libxfixes3 \
+          libxi6 \
+          libxrandr2 \
+          libxrender1 \
+          libxss1 \
+          libxtst6 \
+          ca-certificates \
+          fonts-liberation \
+          libappindicator1 \
+          libnss3 \
+          lsb-release \
+          xdg-utils \
+          wget
+
+    - name: Run scraper
+      env:
+        AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
+        AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+        AIRTABLE_TABLE_ID: ${{ secrets.AIRTABLE_TABLE_ID }}
+      run: node scraper.js
+
+    - name: Upload results as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: motorcycle-classes-${{ github.run_number }}
+        path: '*.json'
+        retention-days: 30
+
+    - name: Commit and push if changed
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add -A
+        if ! git diff --cached --exit-code; then
+          git commit -m "Update motorcycle classes data $(date)"
+          git push
+        fi
