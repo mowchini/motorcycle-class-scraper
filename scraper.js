@@ -174,6 +174,7 @@ class MotorcycleClassScraper {
 
 async scrapeAll() {
   console.log('🚀 Starting scraper...');
+  console.log('🔍 Scraping ${source.name}...');
   await this.init();
 
   // Define all sources
